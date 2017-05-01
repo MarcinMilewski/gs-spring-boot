@@ -3,7 +3,7 @@ pipeline {
     stages {
         stage('Example') {
             steps {
-                echo 'Hello World 2, master pooling test'
+                echo 'Hello World 2, master pooling test 1'
             }
         }
     }
