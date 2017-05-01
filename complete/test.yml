@@ -1,0 +1,215 @@
+--
+ type: "service_template"
+ subtype: "workflow"
+ name: "Deploy MLB"
+ description: "This is the workflow to deploy Mongo container, insert MLB data then deploy Node.js container with a web application to read MLB data."
+ repo: "https://github.com/Applatix/playground-appstore.git"
+ branch: "master"
+ inputs:
+   parameters:
+      appname:
+        default: "mlb-app"
+      commit:
+        default: "%%session.commit%%"
+      repo:
+        default: "%%session.repo%%"
+      year:
+        default: "2016"
+  outputs:
+  steps:
+    -
+      checkout:
+        template: "axscm-checkout"
+        parameters:
+          commit: "b433b4b996480d7e513f81a02fb0524f93ac0818"
+          repo: "https://github.com/Applatix/playground-appstore.git"
+    -
+      deploy-mongo:
+        template: "deploy-mongo"
+        parameters:
+          appname: "mlb-app"
+          code: "%%steps.checkout.code%%"
+    -
+      insert-data:
+        template: "insert-mlb-data"
+        parameters:
+          appname: "mlb-app"
+          code: "%%steps.checkout.code%%"
+          year: "2016"
+    -
+      deploy-mlb:
+        template: "deploy-mlb"
+        parameters:
+          appname: "mlb-app"
+          code: "%%steps.checkout.code%%"
+--
+ type: "service_template"
+ subtype: "container"
+ name: "axscm-checkout"
+ description: "Checks out a source repository to /src"
+ repo: "https://github.com/Applatix/playground-appstore.git"
+ branch: "master"
+ container:
+   resources:
+      mem_mib: 256
+      cpu_cores: 0.2
+    image: "get.applatix.io/applatix/axscm:v2.0"
+    docker_options: ""
+    command: "axscm clone %%repo%% /src --commit %%commit%%"
+  inputs:
+    parameters:
+      commit:
+        default: "%%session.commit%%"
+      repo:
+        default: "%%session.repo%%"
+  outputs:
+    artifacts:
+      code:
+        path: "/src"
+--
+ type: "service_template"
+ subtype: "deployment"
+ name: "deploy-mongo"
+ repo: "https://github.com/Applatix/playground-appstore.git"
+ branch: "master"
+ inputs:
+   parameters:
+     appname:
+        default: "mlb-app"
+      code:
+        default: "%%session.artifacts%%"
+  outputs:
+  application:
+    name: "%%appname%%"
+  deployment:
+    name: "mongo-deploy"
+  scale:
+    min: 1
+  internal_routes:
+    -
+      name: "mongo"
+      ports:
+        -
+          name: "tcp"
+          port: "27017"
+          target_port: "27017"
+  containers:
+    -
+      server:
+        costid:
+          app: "axdevops"
+          service: "Deploy MLB"
+          user: "marcin.mil123@gmail.com"
+        template:
+          type: "service_template"
+          subtype: "container"
+          name: "mongodb"
+          description: "MongoDB container"
+          repo: "https://github.com/Applatix/playground-appstore.git"
+          branch: "master"
+          container:
+            resources:
+              mem_mib: 2048
+              cpu_cores: 0.3
+            image: "mongo:3.2.9"
+            docker_options: ""
+            command: ""
+          inputs:
+          outputs:
+        parameters:
+          PROBE_CMD: "sh -c 'ls -l /src/mlb-app'"
+        name: "mongodb"
+        mem: 2048
+        cpu: 0.3
+        user: "marcin.mil123@gmail.com"
+        task_id: "7d44825f-2b70-11e7-beb3-0a58c0a88247"
+        is_submitted: false
+--
+ type: "service_template"
+ subtype: "container"
+ name: "insert-mlb-data"
+ description: "MLB Data Insert"
+ repo: "https://github.com/Applatix/playground-appstore.git"
+ branch: "master"
+ container:
+   resources:
+      mem_mib: 1024
+      cpu_cores: 0.2
+    image: "python:3.5.2"
+    docker_options: ""
+    command: "sh -c 'pip install pymongo && pip install requests && python /src/mlb-app/loader.py --db mongo.%%appname%% --year %%year%%'"
+  inputs:
+    artifacts:
+      -
+        name: "code"
+        path: "/src"
+        from: "%%code%%"
+    parameters:
+      appname:
+      code:
+      year:
+  outputs:
+--
+ type: "service_template"
+ subtype: "deployment"
+ name: "deploy-mlb"
+ repo: "https://github.com/Applatix/playground-appstore.git"
+ branch: "master"
+ inputs:
+   parameters:
+     appname:
+        default: "mlb-app"
+      code:
+        default: "%%session.artifacts%%"
+  outputs:
+  application:
+    name: "%%appname%%"
+  deployment:
+    name: "run-mlb-deploy"
+  scale:
+    min: 1
+  external_routes:
+    -
+      name: "mlb-db"
+      target_port: "5000"
+      ip_white_list:
+        - "0.0.0.0/0"
+      redirect_http_to_https: true
+  containers:
+    -
+      server:
+        costid:
+          app: "axdevops"
+          service: "Deploy MLB"
+          user: "marcin.mil123@gmail.com"
+        template:
+          type: "service_template"
+          subtype: "container"
+          name: "run-mlb-node"
+          repo: "https://github.com/Applatix/playground-appstore.git"
+          branch: "master"
+          container:
+            resources:
+              mem_mib: 1024
+              cpu_cores: 0.4
+            image: "docker.io/library/node:0.10"
+            docker_options: "-e NODE_ENV=production -e MONGOLAB_URI=mongodb://mongo:27017/MLB"
+            command: "cd src/mlb-app && npm install && node app.js"
+          inputs:
+            artifacts:
+              -
+                name: "code"
+                path: "/src"
+                from: "%%code%%"
+            parameters:
+              code:
+          outputs:
+        parameters:
+          PROBE_CMD: "sh -c 'ls -l /src/mlb-app'"
+          code: "%%steps.checkout.code%%"
+        name: "run-mlb-node"
+        mem: 1024
+        cpu: 0.4
+        user: "marcin.mil123@gmail.com"
+        task_id: "7d44825f-2b70-11e7-beb3-0a58c0a88247"
+        is_submitted: false
