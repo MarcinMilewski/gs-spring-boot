@@ -3,7 +3,7 @@ pipeline {
     stages {
         stage('Example') {
             steps {
-                echo 'Hello World 2 - diff branch'
+                echo 'Hello World 2 - diff branch, pooling test'
             }
         }
     }
